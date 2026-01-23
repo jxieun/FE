@@ -24,7 +24,7 @@ export const searchStocksByQuery = async (query) => {
 };
 
 const api = axios.create({
-    baseURL: '/',
+    baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080',
     withCredentials: true
 });
 
