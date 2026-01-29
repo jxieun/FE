@@ -105,12 +105,14 @@ export default function StockDetail() {
 
                 // ... (이후 로직은 기존 변수명 활용)
 
-                // 1. 관심종목 상태 설정
-                const isWatched = watchlistData.some(item => item.stockId === id);
+                // 1. 관심종목 상태 설정 (LocalStorage 우선)
+                const storedWatchlist = JSON.parse(localStorage.getItem(`watchlist_${userId}`)) || [];
+                const isWatched = storedWatchlist.includes(id);
                 setWatch(isWatched);
 
                 // 2. 보유종목 상태 설정
                 const existingItem = portfolioData.find(item => item.stockId === id);
+                // ... (이하 동일)
                 if (existingItem) {
                     setExistingPortfolio(existingItem);
                     setQuantity(existingItem.quantity);
@@ -188,25 +190,37 @@ export default function StockDetail() {
     // ------------------------------------------------------------------
 
 
-    // (관심종목 토글 함수 - 기존과 동일)
+    // (관심종목 토글 함수 - LocalStorage Fallback)
     const toggleWatch = async () => {
         const userId = localStorage.getItem('userId');
         if (!userId) {
             alert("로그인이 필요합니다.");
             return;
         }
+
         const next = !watch;
         setWatch(next);
+
+        // LocalStorage 업데이트
         try {
+            const key = `watchlist_${userId}`;
+            let list = JSON.parse(localStorage.getItem(key)) || [];
+
             if (next) {
-                await api.post(`/api/users/${userId}/watchlist`, { stockId: id });
+                if (!list.includes(id)) list.push(id);
             } else {
-                await api.delete(`/api/users/${userId}/watchlist/${id}`);
+                list = list.filter(item => item !== id);
+            }
+            localStorage.setItem(key, JSON.stringify(list));
+
+            // 백엔드 동기화 시도 (실패해도 무시)
+            if (next) {
+                api.post(`/api/users/${userId}/watchlist`, { stockId: id }).catch(() => { });
+            } else {
+                api.delete(`/api/users/${userId}/watchlist/${id}`).catch(() => { });
             }
         } catch (err) {
-            console.error("관심종목 처리 실패:", err);
-            alert("요청 처리에 실패했습니다. 다시 시도해 주세요.");
-            setWatch(!next);
+            console.error("관심종목 처리 중 오류 (Local):", err);
         }
     };
 
@@ -229,16 +243,35 @@ export default function StockDetail() {
         };
 
         try {
-            if (existingPortfolio) {
-                // --- 1. 이미 존재: 수정 (PUT) ---
-                await api.put(`/api/users/${userId}/portfolio/${id}`, payload);
-                alert(`${data.name} 종목이 수정되었습니다.`);
-            } else {
-                // --- 2. 신규: 추가 (POST) ---
-                await api.post(`/api/users/${userId}/portfolio`, payload);
-                alert(`${data.name} 종목이 보유 목록에 추가되었습니다.`);
+            // LocalStorage 업데이트
+            const key = `portfolio_${userId}`;
+            let list = JSON.parse(localStorage.getItem(key)) || [];
+
+            // 기존 항목 제거 후 새 항목 추가 (수정/추가 동일)
+            list = list.filter(item => item.stockId !== id);
+
+            const newItem = {
+                stockId: id,
+                stockName: data.name,
+                quantity: numQuantity,
+                avgPurchasePrice: numAvgPrice
+            };
+            list.push(newItem);
+            localStorage.setItem(key, JSON.stringify(list));
+
+            // 백엔드 동기화 (실패시 무시)
+            try {
+                if (existingPortfolio) {
+                    await api.put(`/api/users/${userId}/portfolio/${id}`, payload);
+                } else {
+                    await api.post(`/api/users/${userId}/portfolio`, payload);
+                }
+            } catch (e) {
+                console.warn("백엔드 포트폴리오 저장 실패 (Local 저장됨):", e);
             }
-            navigate('/watchlist'); // 성공 시 '내 주식' 페이지로 이동
+
+            alert(`${data.name} 종목이 ${existingPortfolio ? "수정" : "추가"}되었습니다.`);
+            navigate('/watchlist');
         } catch (err) {
             console.error("보유 종목 처리 실패:", err);
             alert("요청 처리에 실패했습니다.");

@@ -13,6 +13,7 @@ const fetchPriceFromAI = async (stockId) => {
     }
     const data = await res.json();
     return {
+      name: data.name, // 이름 추가 반환
       price: data.price,
       changePct: data.changePct,
       gainLossPct: data.changePct
@@ -50,30 +51,51 @@ export default function Watchlist() {
 
       setLoading(true);
       try {
-        const [portfolioRes, watchlistRes] = await Promise.all([
-          api.get(`/api/users/${userId}/portfolio`),
-          api.get(`/api/users/${userId}/watchlist`)
-        ]);
+        let pResData = [];
+        let wResData = [];
+
+        try {
+          // 백엔드 요청 시도
+          const [portfolioRes, watchlistRes] = await Promise.all([
+            api.get(`/api/users/${userId}/portfolio`),
+            api.get(`/api/users/${userId}/watchlist`)
+          ]);
+          pResData = portfolioRes.data;
+          wResData = watchlistRes.data;
+        } catch (backendErr) {
+          console.warn("백엔드 로드 실패, LocalStorage 사용:", backendErr);
+
+          // LocalStorage Fallback 읽기
+          const localWatch = JSON.parse(localStorage.getItem(`watchlist_${userId}`)) || [];
+          // LocalWatch는 ID 리스트이므로 객체 형태로 변환 필요 (이름은 모름, API 호출 시 가져와야 함)
+          wResData = localWatch.map(id => ({ stockId: id, stockName: id }));
+
+          // Portfolio도 LocalStorage에 저장된 게 있다면 사용 (구조: [{stockId, quantity, avgPurchasePrice}, ...])
+          const localPort = JSON.parse(localStorage.getItem(`portfolio_${userId}`)) || [];
+          pResData = localPort;
+        }
 
         const portfolioWithPrices = await Promise.all(
-            portfolioRes.data.map(async (item) => {
-              const aiData = await fetchPriceFromAI(item.stockId);
-              return {
-                ...item,
-                currentPrice: aiData.price,
-                gainLossPct: aiData.changePct,
-              };
-            })
+          pResData.map(async (item) => {
+            const aiData = await fetchPriceFromAI(item.stockId);
+            return {
+              ...item,
+              stockName: aiData.name || item.stockName || item.stockId, // 이름 보정
+              currentPrice: aiData.price,
+              gainLossPct: aiData.changePct,
+            };
+          })
         );
         const watchlistWithPrices = await Promise.all(
-            watchlistRes.data.map(async (item) => {
-              const aiData = await fetchPriceFromAI(item.stockId);
-              return {
-                ...item,
-                price: aiData.price,
-                changePct: aiData.changePct,
-              };
-            })
+          wResData.map(async (item) => {
+            const aiData = await fetchPriceFromAI(item.stockId);
+            return {
+              ...item,
+              stockName: aiData.name || item.stockName || item.stockId, // 이름 보정
+              price: aiData.price,
+              changePct: aiData.changePct,
+            };
+          })
         );
 
         setRealOwnList(portfolioWithPrices);
@@ -189,15 +211,15 @@ export default function Watchlist() {
       const updatedItem = res.data;
 
       setRealOwnList(prevList =>
-          prevList.map(item =>
-              item.stockId === id
-                  ? {
-                    ...item,
-                    quantity: updatedItem.quantity,
-                    avgPurchasePrice: updatedItem.avgPurchasePrice
-                  }
-                  : item
-          )
+        prevList.map(item =>
+          item.stockId === id
+            ? {
+              ...item,
+              quantity: updatedItem.quantity,
+              avgPurchasePrice: updatedItem.avgPurchasePrice
+            }
+            : item
+        )
       );
       setEditingId(null);
 
@@ -209,146 +231,146 @@ export default function Watchlist() {
 
 
   return (
-      <div className="wl-page">
-        {/* (헤더, 탭바는 기존과 동일) */}
-        <div className="wl-header">
-          <h1 className="wl-h1">내 주식</h1>
-          <div className="wl-tabbar">
-            <button
-                className={`wl-pill ${tab === "own" ? "active" : ""}`}
-                onClick={() => setTab("own")}
-            >
-              보유 종목
-            </button>
-            <button
-                className={`wl-pill ${tab === "watch" ? "active" : ""}`}
-                onClick={() => setTab("watch")}
-            >
-              관심 종목
-            </button>
-            <div className={`wl-underline ${tab}`} />
-          </div>
-        </div>
-
-        <div className="wl-card">
-          {loading ? ( <InlineLoader /> )
-              : rows.length === 0 ? (
-                  <div className="wl-empty">
-                    {tab === "watch"
-                        ? "💡 아직 관심등록한 종목이 없습니다."
-                        : "💡 보유 중인 종목이 없습니다."}
-                  </div>
-              ) : (
-                  <>
-                    {/* --- [수정] 헤더에 '평가액' 추가 --- */}
-                    <div className="wl-row wl-head">
-                      <div className="c-name">종목명</div>
-                      <div className="c-price">현재가</div>
-                      {tab === "own" && <div className="c-value">평가액</div>} {/* [신규] 평가액 헤더 */}
-                      {tab === "own" && <div className="c-qty">{editingId ? "평단" : "보유수량"}</div>}
-                      <div className="c-change">{tab === "own" ? (editingId ? "수량" : "수익(률)") : "등락률"}</div>
-                    </div>
-
-                    {rows.map((r) => (
-                        <div className={`wl-row ${editingId === r.id ? 'editing' : ''}`} key={r.id}>
-
-                          {/* 종목명 */}
-                          <div className="c-name">
-                      <span className={`wl-link ${editingId ? 'disabled' : ''}`} onClick={() => handleStockClick(r.id)}>
-                        {r.name}
-                      </span>
-                            <span className="wl-ticker">{r.id}</span>
-                          </div>
-
-                          {/* 현재가 */}
-                          <div className="c-price">₩{Number(r.price).toLocaleString("ko-KR")}</div>
-
-                          {/* --- [신규] 평가액 --- */}
-                          {tab === "own" && (
-                              <div className="c-value">
-                                ₩{Number(r.totalValue).toLocaleString("ko-KR")}
-                              </div>
-                          )}
-
-                          {/* 보유수량 (수정 모드 시 평단 입력) */}
-                          {tab === "own" && (
-                              <div className="c-qty">
-                                {editingId === r.id ? (
-                                    <input
-                                        type="number"
-                                        className="wl-edit-input"
-                                        value={editAvgPrice}
-                                        onChange={(e) => setEditAvgPrice(e.target.value)}
-                                        placeholder="평균 매수 단가"
-                                    />
-                                ) : (
-                                    r.quantity
-                                )}
-                              </div>
-                          )}
-
-                          {/* 수익/등락률 (수정 모드 시 수량 입력) */}
-                          <div className={`c-change ${ (r.profit ?? r.changePct ?? 0) >= 0 ? "up" : "down" }`}>
-                            {tab === "own" ? (
-                                editingId === r.id ? (
-                                    <input
-                                        type="number"
-                                        className="wl-edit-input"
-                                        value={editQty}
-                                        onChange={(e) => setEditQty(e.target.value)}
-                                        placeholder="보유 수량"
-                                    />
-                                ) : (
-                                    <>
-                            <span className="wl-profit-amt">
-                              {r.profitAmt >= 0 ? "+" : ""}
-                              {Number(r.profitAmt).toLocaleString("ko-KR")}
-                            </span>
-                                      <span>
-                              ({(r.profit ?? 0) >= 0 ? "+" : ""}
-                                        {(r.profit ?? 0).toFixed(2)}%)
-                            </span>
-                                    </>
-                                )
-                            ) : (
-                                <>
-                                  {(r.changePct ?? 0) >= 0 ? "+" : ""}
-                                  {(r.changePct ?? 0).toFixed(2)}%
-                                </>
-                            )}
-                          </div>
-
-                          {/* 액션 버튼 (수정 모드 핸들링) */}
-                          <div className="c-actions">
-                            {tab === "watch" ? (
-                                <button className="wl-btn ghost" onClick={() => handleUnwatch(r.id)}>
-                                  관심 해제
-                                </button>
-                            ) : editingId === r.id ? (
-                                <>
-                                  <button className="wl-btn save" onClick={() => handleUpdateOwn(r.id)}>
-                                    저장
-                                  </button>
-                                  <button className="wl-btn ghost" onClick={handleCancelEdit}>
-                                    취소
-                                  </button>
-                                </>
-                            ) : (
-                                <>
-                                  <button className="wl-btn" onClick={() => handleEditClick(r)}>
-                                    수정
-                                  </button>
-                                  <button className="wl-btn ghost danger" onClick={() => handleRemoveOwn(r.id)}>
-                                    삭제
-                                  </button>
-                                </>
-                            )}
-                          </div>
-                        </div>
-                    ))}
-                  </>
-              )}
+    <div className="wl-page">
+      {/* (헤더, 탭바는 기존과 동일) */}
+      <div className="wl-header">
+        <h1 className="wl-h1">내 주식</h1>
+        <div className="wl-tabbar">
+          <button
+            className={`wl-pill ${tab === "own" ? "active" : ""}`}
+            onClick={() => setTab("own")}
+          >
+            보유 종목
+          </button>
+          <button
+            className={`wl-pill ${tab === "watch" ? "active" : ""}`}
+            onClick={() => setTab("watch")}
+          >
+            관심 종목
+          </button>
+          <div className={`wl-underline ${tab}`} />
         </div>
       </div>
+
+      <div className="wl-card">
+        {loading ? (<InlineLoader />)
+          : rows.length === 0 ? (
+            <div className="wl-empty">
+              {tab === "watch"
+                ? "💡 아직 관심등록한 종목이 없습니다."
+                : "💡 보유 중인 종목이 없습니다."}
+            </div>
+          ) : (
+            <>
+              {/* --- [수정] 헤더에 '평가액' 추가 --- */}
+              <div className="wl-row wl-head">
+                <div className="c-name">종목명</div>
+                <div className="c-price">현재가</div>
+                {tab === "own" && <div className="c-value">평가액</div>} {/* [신규] 평가액 헤더 */}
+                {tab === "own" && <div className="c-qty">{editingId ? "평단" : "보유수량"}</div>}
+                <div className="c-change">{tab === "own" ? (editingId ? "수량" : "수익(률)") : "등락률"}</div>
+              </div>
+
+              {rows.map((r) => (
+                <div className={`wl-row ${editingId === r.id ? 'editing' : ''}`} key={r.id}>
+
+                  {/* 종목명 */}
+                  <div className="c-name">
+                    <span className={`wl-link ${editingId ? 'disabled' : ''}`} onClick={() => handleStockClick(r.id)}>
+                      {r.name}
+                    </span>
+                    <span className="wl-ticker">{r.id}</span>
+                  </div>
+
+                  {/* 현재가 */}
+                  <div className="c-price">₩{Number(r.price).toLocaleString("ko-KR")}</div>
+
+                  {/* --- [신규] 평가액 --- */}
+                  {tab === "own" && (
+                    <div className="c-value">
+                      ₩{Number(r.totalValue).toLocaleString("ko-KR")}
+                    </div>
+                  )}
+
+                  {/* 보유수량 (수정 모드 시 평단 입력) */}
+                  {tab === "own" && (
+                    <div className="c-qty">
+                      {editingId === r.id ? (
+                        <input
+                          type="number"
+                          className="wl-edit-input"
+                          value={editAvgPrice}
+                          onChange={(e) => setEditAvgPrice(e.target.value)}
+                          placeholder="평균 매수 단가"
+                        />
+                      ) : (
+                        r.quantity
+                      )}
+                    </div>
+                  )}
+
+                  {/* 수익/등락률 (수정 모드 시 수량 입력) */}
+                  <div className={`c-change ${(r.profit ?? r.changePct ?? 0) >= 0 ? "up" : "down"}`}>
+                    {tab === "own" ? (
+                      editingId === r.id ? (
+                        <input
+                          type="number"
+                          className="wl-edit-input"
+                          value={editQty}
+                          onChange={(e) => setEditQty(e.target.value)}
+                          placeholder="보유 수량"
+                        />
+                      ) : (
+                        <>
+                          <span className="wl-profit-amt">
+                            {r.profitAmt >= 0 ? "+" : ""}
+                            {Number(r.profitAmt).toLocaleString("ko-KR")}
+                          </span>
+                          <span>
+                            ({(r.profit ?? 0) >= 0 ? "+" : ""}
+                            {(r.profit ?? 0).toFixed(2)}%)
+                          </span>
+                        </>
+                      )
+                    ) : (
+                      <>
+                        {(r.changePct ?? 0) >= 0 ? "+" : ""}
+                        {(r.changePct ?? 0).toFixed(2)}%
+                      </>
+                    )}
+                  </div>
+
+                  {/* 액션 버튼 (수정 모드 핸들링) */}
+                  <div className="c-actions">
+                    {tab === "watch" ? (
+                      <button className="wl-btn ghost" onClick={() => handleUnwatch(r.id)}>
+                        관심 해제
+                      </button>
+                    ) : editingId === r.id ? (
+                      <>
+                        <button className="wl-btn save" onClick={() => handleUpdateOwn(r.id)}>
+                          저장
+                        </button>
+                        <button className="wl-btn ghost" onClick={handleCancelEdit}>
+                          취소
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button className="wl-btn" onClick={() => handleEditClick(r)}>
+                          수정
+                        </button>
+                        <button className="wl-btn ghost danger" onClick={() => handleRemoveOwn(r.id)}>
+                          삭제
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+      </div>
+    </div>
   );
 }
