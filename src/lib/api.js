@@ -8,15 +8,20 @@ import axios from 'axios';
  */
 export const searchStocksByQuery = async (query) => {
     try {
-        // 백엔드 컨트롤러에 정의한 엔드포인트: /api/stocks/search?query=검색어
-        const response = await fetch(`/api/stocks/search?query=${encodeURIComponent(query)}`);
+        // AI 서버의 Fallback 검색 API 사용 (/ai/api/stock/search)
+        const response = await fetch(`/ai/api/stock/search?query=${encodeURIComponent(query)}`);
 
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
         const data = await response.json();
-        return data; // Spring Boot에서 반환된 List<Stock>
+
+        // Frontend Nav.jsx가 기대하는 형식으로 변환 (ticker -> stockId, name -> stockName)
+        return data.map(item => ({
+            stockId: item.ticker,
+            stockName: item.name
+        }));
     } catch (error) {
         console.error("Failed to search stocks:", error);
         return []; // 에러 발생 시 빈 배열 반환
