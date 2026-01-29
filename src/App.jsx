@@ -10,23 +10,23 @@ export default function App() {
     useEffect(() => {
 
         const initializeApp = async () => {
-            try {
-                console.log("세션 초기화를 시도합니다...");
+            console.log("세션 초기화를 시도합니다 (Local Mode)...");
 
-                const response = await api.get('/api/session/init');
+            // API 호출 대신 로컬에서 UUID 생성
+            let userId = localStorage.getItem('userId');
+            let isNewSession = false;
 
-                const { userId, isNewSession } = response.data;
-
+            if (!userId) {
+                // 간단한 UUID 생성 (브라우저 지원)
+                userId = crypto.randomUUID ? crypto.randomUUID() : 'user-' + Date.now();
                 localStorage.setItem('userId', userId);
+                isNewSession = true;
+            }
 
-                if (isNewSession) {
-                    console.log(`새로운 세션이 시작되었습니다. (UserID: ${userId})`);
-                } else {
-                    console.log(`기존 세션에 연결되었습니다. (UserID: ${userId})`);
-                }
-
-            } catch (error) {
-                console.error("세션 초기화 중 오류 발생:", error);
+            if (isNewSession) {
+                console.log(`새로운 세션이 시작되었습니다. (Local UserID: ${userId})`);
+            } else {
+                console.log(`기존 세션에 연결되었습니다. (Local UserID: ${userId})`);
             }
         };
 
