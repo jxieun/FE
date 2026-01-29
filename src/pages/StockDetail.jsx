@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import api from "../lib/api.js"; 
+import api from "../lib/api.js";
 import "./../assets/StockDetail.css";
 import InlineLoader from "../components/InlineLoader.jsx";
 
@@ -44,7 +44,7 @@ export default function StockDetail() {
     const [data, setData] = useState(null);
     const [watch, setWatch] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null); 
+    const [error, setError] = useState(null);
 
     // [수정] 포트폴리오 폼 State
     const [quantity, setQuantity] = useState("");
@@ -65,36 +65,51 @@ export default function StockDetail() {
             setError(null);
             setLoading(true); // 로딩 시작
             try {
-                const [
-                    aiPriceRes,
-                    aiChartRes,
-                    backendRes,
-                    watchlistRes,
-                    portfolioRes // [신규] 보유 목록 API 호출
-                ] = await Promise.all([
+                // 1. Critical Data (AI Service) - Must wait
+                const [aiPriceRes, aiChartRes] = await Promise.all([
                     fetch(`/ai/api/stock/${id}`),
-                    fetch(`/ai/api/stock/${id}/chart`),
-                    fetch(`/api/stocks/${id}`),
-                    api.get(`/api/users/${userId}/watchlist`),
-                    api.get(`/api/users/${userId}/portfolio`)
+                    fetch(`/ai/api/stock/${id}/chart`)
                 ]);
 
-                // (에러 체크 ...)
-                if (!aiPriceRes.ok || !aiChartRes.ok || !backendRes.ok || !watchlistRes.status === 200 || !portfolioRes.status === 200) {
-                    throw new Error('종목 정보를 가져오는 데 실패했습니다.');
+                if (!aiPriceRes.ok || !aiChartRes.ok) {
+                    throw new Error('AI 서비스에서 데이터를 가져오지 못했습니다.');
                 }
-                
+
                 const aiPriceData = await aiPriceRes.json();
                 const aiChartData = await aiChartRes.json();
-                const backendData = await backendRes.json();
-                const watchlistData = watchlistRes.data;
-                const portfolioData = portfolioRes.data; // [신규]
+
+                // 2. Secondary Data (Backend News/Reports) - Optional
+                let backendData = { news: [], reports: [], tech: { rsi: 0, macd: 0, ma20: 0 } };
+                try {
+                    const backendRes = await fetch(`/api/stocks/${id}`);
+                    if (backendRes.ok) {
+                        backendData = await backendRes.json();
+                    }
+                } catch (bErr) {
+                    console.warn("백엔드 데이터(News/Reports) 조회 실패 - 무시하고 진행:", bErr);
+                }
+
+                // 3. User Data (Watchlist/Portfolio) - Optional but good to have
+                let watchlistData = [];
+                let portfolioData = [];
+                try {
+                    const [wRes, pRes] = await Promise.all([
+                        api.get(`/api/users/${userId}/watchlist`),
+                        api.get(`/api/users/${userId}/portfolio`)
+                    ]);
+                    watchlistData = wRes.data;
+                    portfolioData = pRes.data;
+                } catch (uErr) {
+                    console.warn("사용자 데이터 조회 실패:", uErr);
+                }
+
+                // ... (이후 로직은 기존 변수명 활용)
 
                 // 1. 관심종목 상태 설정
                 const isWatched = watchlistData.some(item => item.stockId === id);
                 setWatch(isWatched);
 
-                // 2. [신규] 보유종목 상태 설정 (폼 자동 채우기)
+                // 2. 보유종목 상태 설정
                 const existingItem = portfolioData.find(item => item.stockId === id);
                 if (existingItem) {
                     setExistingPortfolio(existingItem);
@@ -110,21 +125,19 @@ export default function StockDetail() {
                 setData({
                     name: aiPriceData.name,
                     price: aiPriceData.price,
-                    // (이하 동일)
                     changePct: aiPriceData.changePct,
-                    changeAmt: aiPriceData.changeAmt,
+                    changeAmt: aiPriceData.changeAmt || 0, // Fallback if missing
                     ohlc: aiPriceData.ohlc,
-                    chart: aiChartData.chart, 
-                    news: backendData.news,
-                    reports: backendData.reports,
+                    chart: aiChartData.chart,
+                    news: backendData.news || [],
+                    reports: backendData.reports || [],
                     foreignTicker: aiPriceData.foreignTicker || id,
-                    // 백엔드에서 받아온 tech 데이터를 초기값으로 사용
-                    tech: backendData.tech || { rsi: 0, macd: 0, ma20: 0 }, 
+                    tech: backendData.tech || { rsi: 0, macd: 0, ma20: 0 },
                 });
 
             } catch (e) {
                 console.error(e);
-                setError(e.message || "데이터를 불러오지 못했어요."); 
+                setError(e.message || "데이터를 불러오지 못했어요.");
             } finally {
                 setLoading(false); // 로딩 종료
             }
@@ -139,10 +152,10 @@ export default function StockDetail() {
     // ------------------------------------------------------------------
     // 기술 지표 가져오기 (무한 루프 방지)
     useEffect(() => {
-        
+
         // 1. 데이터가 아직 로드되지 않았으면 실행x
-        if (!data) return; 
-        
+        if (!data) return;
+
         // 2. 기술 지표가 이미 유효한 값으로 설정되었다면(0이 아니면) 재요청x
         //    (단, 백엔드에서 0이 아닌 유효한 값을 받았다고 가정)
         //    -> 백엔드에서 404 에러 시 0이 들어올 수 있으므로, 이 조건은 신중해야함
@@ -151,7 +164,7 @@ export default function StockDetail() {
         const fetchTechIndicators = async () => {
             try {
                 const response = await api.post('/api/stocks/tech-indicators', { symbol: id });
-                
+
                 const { tech } = response.data;
 
                 setData((prevData) => {
@@ -162,14 +175,14 @@ export default function StockDetail() {
                     };
                 });
             } catch (error) {
-                setError(error.message || "기술 지표를 가져오지 못했습니다."); 
+                setError(error.message || "기술 지표를 가져오지 못했습니다.");
             }
         };
-        
+
         fetchTechIndicators();
-        
-    // 💡 핵심 수정: 의존성 배열에서 `data`를 제거하고, `id`만 남김
-    //    종목 ID가 변경될 때만 이 훅이 실행
+
+        // 💡 핵심 수정: 의존성 배열에서 `data`를 제거하고, `id`만 남김
+        //    종목 ID가 변경될 때만 이 훅이 실행
     }, [id]);
 
     // ------------------------------------------------------------------
@@ -238,11 +251,11 @@ export default function StockDetail() {
 
     if (error || !data) {
         return <div className="sd-wrap"><div className="sd-error">{error || '데이터를 불러오지 못했어요.'}</div></div>;
-    } 
+    }
 
     const { name, foreignTicker, price, changePct, changeAmt, ohlc, tech, chart, news, reports } = data;
-    
-    const fmt = (n) => n?.toLocaleString("ko-KR"); 
+
+    const fmt = (n) => n?.toLocaleString("ko-KR");
 
     // RSI 값은 소수점을 가질 수 있으므로, 숫자 포맷팅 대신 toFixed(2)를 사용합니다.
     const formatRsi = (n) => (typeof n === 'number' ? n.toFixed(2) : fmt(n));
@@ -293,7 +306,7 @@ export default function StockDetail() {
                             type="number"
                             id="quantity"
                             value={quantity}
-                            onChange={(e) => setQuantity(e.target.value)} 
+                            onChange={(e) => setQuantity(e.target.value)}
                             placeholder="예: 10"
                             min="1"
                         />
@@ -304,12 +317,12 @@ export default function StockDetail() {
                             type="number"
                             id="avgPrice"
                             value={avgPrice}
-                            onChange={(e) => setAvgPrice(e.target.value)} 
+                            onChange={(e) => setAvgPrice(e.target.value)}
                             placeholder="예: 80000"
                             min="1"
                         />
                     </div>
-                     {/* [수정] 버튼 텍스트 변경 */}
+                    {/* [수정] 버튼 텍스트 변경 */}
                     <button className="sd-add-btn" onClick={handlePortfolioSubmit}>
                         {existingPortfolio ? "수정하기" : "추가하기"}
                     </button>
