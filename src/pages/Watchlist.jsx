@@ -65,13 +65,22 @@ export default function Watchlist() {
         } catch (backendErr) {
           console.warn("백엔드 로드 실패, LocalStorage 사용:", backendErr);
 
+          // Debug깅용 로그 (배포 환경 확인용)
+          const keyWatch = `watchlist_${userId}`;
+          const keyPort = `portfolio_${userId}`;
+          const rawWatch = localStorage.getItem(keyWatch);
+          const rawPort = localStorage.getItem(keyPort);
+          console.log(`[DEBUG] UserId: ${userId}`);
+          console.log(`[DEBUG] LocalStorage Watchlist Key: ${keyWatch}, Value: ${rawWatch}`);
+          console.log(`[DEBUG] LocalStorage Portfolio Key: ${keyPort}, Value: ${rawPort}`);
+
           // LocalStorage Fallback 읽기
-          const localWatch = JSON.parse(localStorage.getItem(`watchlist_${userId}`)) || [];
+          const localWatch = JSON.parse(rawWatch) || [];
           // LocalWatch는 ID 리스트이므로 객체 형태로 변환 필요 (이름은 모름, API 호출 시 가져와야 함)
           wResData = localWatch.map(id => ({ stockId: id, stockName: id }));
 
           // Portfolio도 LocalStorage에 저장된 게 있다면 사용 (구조: [{stockId, quantity, avgPurchasePrice}, ...])
-          const localPort = JSON.parse(localStorage.getItem(`portfolio_${userId}`)) || [];
+          const localPort = JSON.parse(rawPort) || [];
           pResData = localPort;
         }
 
