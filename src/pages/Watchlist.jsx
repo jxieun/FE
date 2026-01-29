@@ -224,9 +224,21 @@ export default function Watchlist() {
     };
 
     try {
-      const res = await api.put(`/api/users/${userId}/portfolio/${id}`, payload);
-      const updatedItem = res.data;
+      // LocalStorage Update
+      const key = `portfolio_${userId}`;
+      let list = JSON.parse(localStorage.getItem(key)) || [];
 
+      const updatedItem = {
+        stockId: id,
+        stockName: rows.find(r => r.id === id)?.name || id,
+        quantity: numQty,
+        avgPurchasePrice: numAvgPrice
+      };
+
+      list = list.map(item => item.stockId === id ? updatedItem : item);
+      localStorage.setItem(key, JSON.stringify(list));
+
+      // UI Update
       setRealOwnList(prevList =>
         prevList.map(item =>
           item.stockId === id
@@ -240,9 +252,11 @@ export default function Watchlist() {
       );
       setEditingId(null);
 
+      // Backend Update
+      api.put(`/api/users/${userId}/portfolio/${id}`, payload).catch(() => { });
+
     } catch (err) {
-      console.error("보유 종목 수정 실패:", err);
-      alert("수정에 실패했습니다.");
+      console.warn("보유 종목 수정 경고:", err);
     }
   };
 
