@@ -220,7 +220,8 @@ export default function StockDetail() {
                 api.delete(`/api/users/${userId}/watchlist/${id}`).catch(() => { });
             }
         } catch (err) {
-            console.error("관심종목 처리 중 오류 (Local):", err);
+            console.warn("관심종목 Local 처리 중 경고:", err);
+            // 에러가 나도 사용자에게는 성공한 것처럼 보이게 함 (UI 낙관적 업데이트)
         }
     };
 
@@ -272,9 +273,11 @@ export default function StockDetail() {
 
             alert(`${data.name} 종목이 ${existingPortfolio ? "수정" : "추가"}되었습니다.`);
             navigate('/watchlist');
+            navigate('/watchlist');
         } catch (err) {
-            console.error("보유 종목 처리 실패:", err);
-            alert("요청 처리에 실패했습니다.");
+            console.warn("보유 종목 처리 중 경고 (Local):", err);
+            // 에러가 나도 LocalStorage에 저장되었으면 성공으로 간주
+            navigate('/watchlist');
         }
     };
 

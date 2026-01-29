@@ -160,12 +160,21 @@ export default function Watchlist() {
   const handleUnwatch = async (id) => {
     const userId = localStorage.getItem('userId');
     if (!userId) return;
+
+    // Optimistic Update (UI 먼저 반영)
+    setRealWatchList((prev) => prev.filter((r) => r.stockId !== id));
+
     try {
-      await api.delete(`/api/users/${userId}/watchlist/${id}`);
-      setRealWatchList((prev) => prev.filter((r) => r.stockId !== id));
+      // LocalStorage Update
+      const key = `watchlist_${userId}`;
+      let list = JSON.parse(localStorage.getItem(key)) || [];
+      list = list.filter(item => item !== id);
+      localStorage.setItem(key, JSON.stringify(list));
+
+      // Backend Update (실패해도 무시)
+      api.delete(`/api/users/${userId}/watchlist/${id}`).catch(() => { });
     } catch (err) {
-      console.error("관심 종목 삭제 실패:", err);
-      alert("삭제에 실패했습니다.");
+      console.warn("관심 종목 삭제 경고:", err);
     }
   };
 
@@ -173,12 +182,20 @@ export default function Watchlist() {
     const userId = localStorage.getItem('userId');
     if (!userId) return;
     if (window.confirm("정말 이 종목을 보유목록에서 제거할까요?")) {
+      // Optimistic Update
+      setRealOwnList((prev) => prev.filter((r) => r.stockId !== id));
+
       try {
-        await api.delete(`/api/users/${userId}/portfolio/${id}`);
-        setRealOwnList((prev) => prev.filter((r) => r.stockId !== id));
+        // LocalStorage Update
+        const key = `portfolio_${userId}`;
+        let list = JSON.parse(localStorage.getItem(key)) || [];
+        list = list.filter(item => item.stockId !== id);
+        localStorage.setItem(key, JSON.stringify(list));
+
+        // Backend Update
+        api.delete(`/api/users/${userId}/portfolio/${id}`).catch(() => { });
       } catch (err) {
-        console.error("보유 종목 삭제 실패:", err);
-        alert("삭제에 실패했습니다.");
+        console.warn("보유 종목 삭제 경고:", err);
       }
     }
   };
